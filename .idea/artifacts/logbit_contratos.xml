@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="logbit-contratos">
+    <output-path>$PROJECT_DIR$/out/artifacts/logbit_contratos</output-path>
+    <root id="archive" name="logbit-contratos.jar">
+      <element id="module-output" name="logbit-contratos" />
+    </root>
+  </artifact>
+</component>
