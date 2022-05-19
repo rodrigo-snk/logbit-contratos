@@ -22,9 +22,12 @@ import com.sankhya.util.TimeUtils;
 import org.apache.commons.net.ntp.TimeStamp;
 
 import java.math.BigDecimal;
+import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.stream.Collectors;
 
 public class GeraContrato implements AcaoRotinaJava {
     @Override
@@ -57,12 +60,17 @@ public class GeraContrato implements AcaoRotinaJava {
                 Collection<DynamicVO> parcelasVO = parcelas(numOS, sequencial);
 
                 if (parcelasVO.isEmpty()) {
-                    throw new MGEModelException("Preencha o parcelamento corretamente para gerar as provisões no contrato.");
+                    contextoAcao.mostraErro("Preencha o parcelamento corretamente para gerar as provisões no contrato.");
                 } else {
                     Timestamp dtFatur = parcelasVO.stream().findFirst().get().asTimestamp("DTFATURAMENTO");
 
+                    if (dtFatur == null) contextoAcao.mostraErro("Preencha a data de faturamento das parcelas.");
+                    Timestamp dtTerminoCon = TimeUtils.getMonthEnd(Timestamp.valueOf(dtFatur.toLocalDateTime().plusMonths(parcelasVO.size())));
+
+
                     DynamicVO contratoVO = (DynamicVO) dwf.getDefaultValueObjectInstance(DynamicEntityNames.CONTRATO);
-                    contratoVO.setProperty("DTCONTRATO", TimeUtils.getNow());
+                    contratoVO.setProperty("DTCONTRATO", dtFatur);
+                    contratoVO.setProperty("DTTERMINO", dtTerminoCon);
                     contratoVO.setProperty("CODEMP", BigDecimal.ONE);
                     contratoVO.setProperty("CODPARC", prospectVO.asBigDecimalOrZero("CODPARC"));
                     contratoVO.setProperty("CODCONTATO", negociacaoVO.asBigDecimalOrZero("CODCONTATOPAP"));
@@ -80,8 +88,9 @@ public class GeraContrato implements AcaoRotinaJava {
                     //contratoVO.setProperty("CODNAT", codNat);
                     //contratoVO.setProperty("CODTIPVENDA", codTipVenda);
                     contratoVO.setProperty("ATIVO", "S");
+                    contratoVO.setProperty("TIPPAG", "C");
                     contratoVO.setProperty("FREQREAJ", BigDecimalUtil.valueOf(12));
-                    contratoVO.setProperty("DTBASEREAJ", dtFatur);
+                    contratoVO.setProperty("DTBASEREAJ", TimeUtils.getValueOrNow(dtFatur));
                     contratoVO.setProperty("PARCELAATUAL", BigDecimal.ONE);
                     contratoVO.setProperty("PARCELAQTD", BigDecimal.valueOf(parcelasVO.size()));
                     contratoVO.setProperty("QTDPROVISAO", BigDecimal.valueOf(parcelasVO.size()));
@@ -95,6 +104,17 @@ public class GeraContrato implements AcaoRotinaJava {
                     produtoContratoVO.setProperty("VLRUNIT", negociacaoLobgitVO.asBigDecimalOrZero("VLRTOTAL"));
                     dwf.createEntity(DynamicEntityNames.PRODUTO_SERVICO_CONTRATO, (EntityVO) produtoContratoVO);
 
+                    DynamicVO ocorrenciaContratoVO = (DynamicVO) dwf.getDefaultValueObjectInstance(DynamicEntityNames.OCORRENCIA_CONTRATO);
+                    ocorrenciaContratoVO.setProperty("NUMCONTRATO", contratoVO.asBigDecimalOrZero("NUMCONTRATO"));
+                    ocorrenciaContratoVO.setProperty("CODPROD", BigDecimal.valueOf(2)); // Serviço Projeto
+                    ocorrenciaContratoVO.setProperty("CODUSU",codUsuLogado);
+                    ocorrenciaContratoVO.setProperty("CODOCOR", BigDecimal.ONE);
+                    ocorrenciaContratoVO.setProperty("DTOCOR", TimeUtils.getMonthStart(dtFatur));
+                    ocorrenciaContratoVO.setProperty("CODCONTATO", contratoVO.asBigDecimalOrZero("CODCONTATO"));
+                    ocorrenciaContratoVO.setProperty("CODPARC", contratoVO.asBigDecimalOrZero("CODPARC"));
+                    ocorrenciaContratoVO.setProperty("DESCRICAO", "Prestação de serviços");
+                    dwf.createEntity(DynamicEntityNames.OCORRENCIA_CONTRATO, (EntityVO) ocorrenciaContratoVO);
+
 
                     int i = 0;
                     for (DynamicVO parcela: parcelasVO) {
@@ -103,20 +123,9 @@ public class GeraContrato implements AcaoRotinaJava {
                         precoProdVO.setProperty("NUMCONTRATO", contratoVO.asBigDecimalOrZero("NUMCONTRATO"));
                         precoProdVO.setProperty("CODPROD", BigDecimal.valueOf(2)); // Serviço padrão Projeto
                         precoProdVO.setProperty("CODSERV", BigDecimal.valueOf(2)); // Serviço padrão Projeto
-                        precoProdVO.setProperty("REFERENCIA", parcela.asTimestamp("DTFATURAMENTO"));
+                        precoProdVO.setProperty("REFERENCIA", TimeUtils.getMonthStart(parcela.asTimestamp("DTFATURAMENTO")));
                         precoProdVO.setProperty("VALOR", parcela.asBigDecimalOrZero("VLRPARRCELA"));
                         dwf.createEntity(DynamicEntityNames.PRECO_CONTRATO, (EntityVO) precoProdVO);
-
-                        DynamicVO ocorrenciaContratoVO = (DynamicVO) dwf.getDefaultValueObjectInstance(DynamicEntityNames.OCORRENCIA_CONTRATO);
-                        ocorrenciaContratoVO.setProperty("NUMCONTRATO", contratoVO.asBigDecimalOrZero("NUMCONTRATO"));
-                        ocorrenciaContratoVO.setProperty("CODPROD", BigDecimal.valueOf(2)); // Serviço Projeto
-                        ocorrenciaContratoVO.setProperty("CODUSU",codUsuLogado);
-                        ocorrenciaContratoVO.setProperty("CODOCOR", BigDecimal.ONE);
-                        ocorrenciaContratoVO.setProperty("DTOCOR", parcela.asTimestamp("DTFATURAMENTO"));
-                        ocorrenciaContratoVO.setProperty("CODCONTATO", contratoVO.asBigDecimalOrZero("CODCONTATO"));
-                        ocorrenciaContratoVO.setProperty("CODPARC", contratoVO.asBigDecimalOrZero("CODPARC"));
-                        ocorrenciaContratoVO.setProperty("DESCRICAO", "Prestação de serviços");
-                        dwf.createEntity(DynamicEntityNames.OCORRENCIA_CONTRATO, (EntityVO) ocorrenciaContratoVO);
 
                         FinanceiroVO finVO = (FinanceiroVO) dwf.getDefaultValueObjectInstance(DynamicEntityNames.FINANCEIRO, FinanceiroVO.class);
                         finVO.setCODEMP(BigDecimal.ONE);
@@ -134,14 +143,14 @@ public class GeraContrato implements AcaoRotinaJava {
                         finVO.setDTVENC(parcela.asTimestamp("DTRECEBIMENTO"));
                         finVO.setCODBCO(BigDecimal.ZERO);
                         finVO.setORIGEM("F");
-                        finVO.setCODNAT(BigDecimal.ZERO); // Receitas de venda
+                        finVO.setCODNAT(BigDecimal.ZERO);
                         finVO.setVLRDESDOB(parcela.asBigDecimalOrZero("VLRPARRCELA"));
                         finVO.setDESDOBDUPL("T");
                         finVO.setNUMNOTA(BigDecimal.ZERO);
                         if (finVO.getDTVENC() != null) {
                             dwf.createEntity(DynamicEntityNames.FINANCEIRO, finVO);
                         } else {
-                            throw new MGEModelException("Preencha as datas de recebimento no Parcelamento da Negociação.");
+                            contextoAcao.mostraErro("Preencha as datas de recebimento no Parcelamento da Negociação.");
                         }
                     }
 
